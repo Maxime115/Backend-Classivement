@@ -87,7 +87,7 @@ app.use((req, res, next) => {
 
 app.post("/login", (req, res) => {
   const { email, password } = req.body;
-  const sqlVerifyMail = "Select id_Users, password, username FROM users WHERE email=?";
+  const sqlVerifyMail = "SELECT id_Users, password, username, admin, ban FROM users WHERE email=?";
   connection.query(sqlVerifyMail, [email], async (err, result) => {
     if (err) throw err;
     let isEmail;
@@ -99,6 +99,8 @@ app.post("/login", (req, res) => {
       if (passwordMatch) {
         req.session.username = result[0].username;
         req.session.id_Users = result[0].id_Users;
+        req.session.admin = result[0].admin;
+        req.session.ban = result[0].ban;
         console.log(req.session.username);
       
         isEmail = {
@@ -199,6 +201,76 @@ app.post("/addAchievement", upload.single("icon"), async (req, res) => {
     }
   );
 });
+
+app.get("/getComments/:achievementId", (req, res) => {
+  const { achievementId } = req.params;
+
+  const sql = `
+    SELECT
+      commentaires.*,
+      users.username,
+      users.avatar
+    FROM
+      commentaires
+    JOIN users ON commentaires.id_users = users.id_Users
+    WHERE
+      commentaires.id_achievement = ?;
+  `;
+
+  connection.query(sql, [achievementId], (error, result) => {
+    if (error) {
+      console.error(error);
+      res.status(500).json({ message: "Erreur fetch" });
+    } else {
+      console.log("Liste de commentaires récupérée");
+      res.send(JSON.stringify(result));
+    }
+  });
+});
+
+
+app.post("/postComment/:achievementId/:id_Users", (req, res) => {
+  const { id_Users, achievementId } = req.params;
+  const { comment } = req.body;
+
+  console.log(`Received comment: ${comment}`);
+
+  const dateCreation = new Date(); // Use the current date and time
+
+  const sqlInsert =
+    "INSERT INTO commentaires (id_Users, commentaires, date_creation, id_Achievement) VALUES (?, ?, ?, ?)";
+
+  connection.query(
+    sqlInsert,
+    [id_Users, comment, dateCreation, achievementId],
+    (err, result) => {
+      if (err) {
+        console.error(err);
+        res.status(500).json({ message: "Erreur d'ajout du commentaire" });
+      } else {
+        res.status(200).json({ message: "Commentaire ajouté avec succès" });
+      }
+    }
+  );
+});
+
+app.delete("/deleteComment/:commentId", (req, res) => {
+  const { commentId } = req.params;
+
+  const deleteCommentQuery = "DELETE FROM commentaires WHERE id_commentaires = ?";
+
+  connection.query(deleteCommentQuery, [commentId], (error, result) => {
+    if (error) {
+      console.error(error);
+      res.status(500).json({ message: "Erreur lors de la suppression du commentaire" });
+    } else {
+      res.status(200).json({ message: "Commentaire supprimé avec succès" });
+    }
+  });
+});
+
+
+
 
 
 
@@ -340,13 +412,15 @@ app.get("/getGames/:gameId", (req, res) => {
 
 app.get("/getAchievement", (req, res) => {
   const sql = `
-    SELECT
+      SELECT
       achievement.*,
+      users.username,
       jeu.nom_jeu AS game_name
     FROM
       achievement
+    JOIN users ON achievement.id_users = users.id_users
     JOIN jeu ON achievement.jeu_id = jeu.jeu_id;
-  `;
+    `;
 
   connection.query(sql, (error, result) => {
     if (error) {
@@ -359,11 +433,44 @@ app.get("/getAchievement", (req, res) => {
   });
 });
 
+app.get("/getAchievement/:achievementId", (req, res) => {
+  const { achievementId } = req.params;
+  
+  const sql = `
+    SELECT
+      achievement.*,
+      users.username,
+      jeu.nom_jeu AS game_name
+    FROM
+      achievement
+    JOIN users ON achievement.id_users = users.id_users
+    JOIN jeu ON achievement.jeu_id = jeu.jeu_id
+    WHERE
+      achievement.id_Achievement = ?;
+  `;
+
+  connection.query(sql, [achievementId], (error, result) => {
+    if (error) {
+      console.error(error);
+      res.status(500).json({ message: "Erreur fetch" });
+    } else {
+      if (result.length === 0) {
+        res.status(404).json({ message: "Achievement non trouvé" });
+      } else {
+        console.log("Achievement récupéré");
+        res.send(JSON.stringify(result[0])); // Assuming you only expect one achievement with the given ID
+      }
+    }
+  });
+});
+
 app.get("/getUser", (req, res) => {
   if(req.session.username) {
     console.log(req.session.username);
     console.log(req.session.id_Users);
-    return res.json({ valid: true, username: req.session.username, id_Users: req.session.id_Users });
+    console.log(req.session.admin);
+    console.log(req.session.ban);
+    return res.json({ valid: true, username: req.session.username, id_Users: req.session.id_Users, admin: req.session.admin, ban: req.session.ban });
   } else {
     console.log("Aucun utilisateur connecté");
     return res.json({ valid: false });
